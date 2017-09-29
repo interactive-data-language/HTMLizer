@@ -6,7 +6,7 @@ This is a modern replacement to the old extension **idl_to_html**.
 
 ## Accuracy
 
-The overall accuracy of this colorizer is pretty good. It will have troubles if you don't follow best practices outlined in the [IDL contributing guide](https://github.com/interactive-data-language).
+The overall accuracy of this colorizer is pretty good. It will have troubles if you don't follow best practices outlined in the [IDL contributing guide](https://github.com/interactive-data-language/ContribGuide).
 
 
 ## Usage
