@@ -1,19 +1,21 @@
 ; Copyright (c)  Exelis Visual Information Solutions, Inc., a subsidiary of Harris Corporation.
 ;+
 ;
-;  Object that colorizes IDL code with modern CSS classes for use in
+;  Object that colorizes IDL code with CSS classes for use in
 ;  web pages. Code uses regular expressions and some fancy logic behind the
 ;  scenes to duplicate the same syntax highlighting that you see in the IDL
 ;  workbench. See the main level program at the bottom of the file for and
 ;  example of how to use the code.
 ;  
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 
 
 
 
 ;+
+; :Private:
+; 
 ; :Description:
 ;    Procedure to replace any HTML custom characters in the strings.
 ;
@@ -23,10 +25,10 @@
 ;
 ;
 ;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 pro replaceHTMLChars, str
-  compile_opt idl2
+  compile_opt idl2, hidden
   
   ;replace any occurrences of the special character "&" with its HTML escape sequence:
   ;check this first so that we don't mess up our other repalcers
@@ -66,7 +68,7 @@ pro replaceHTMLChars, str
 end
 
 pro update_replacer, $
-  name, replacer, toolDatabase,$
+  inName, replacer, toolDatabase,$
   SEARCH_REPLACE = search_replace,$
   CONTROL = control,$
   FUNC = func,$
@@ -75,10 +77,12 @@ pro update_replacer, $
   METHOD = method,$
   TOOLTIPS = tooltips,$
   DOCS_LINKS = docs_links,$
+  CUSTOM_TOOLTIPS = custom_tooltips,$
   BASELINK = baselink
-  compile_opt idl2
-
-  ;make an array of strings to ignore
+  compile_opt idl2, hidden
+  
+  ;duplicate input name
+  name = inName
 
   ;set our outputs to null strings
   out_link = ''
@@ -99,21 +103,24 @@ pro update_replacer, $
     dbSearch = strupcase(name)
   endelse
 
-  ;figure out what our search term needs to be
+  ;figure out what our search term needs to be for our database
   ;depending on the type of item the searches are a little different fromone another
   case (1) of
     ;function method
     keyword_set(method):begin
-      idx_thing = where(strpos(toolDatabase, '::' + dbSearch + '"') ne -1, count_thing)
+      name = '::' + dbSearch
+      idx_thing = where(strpos(toolDatabase, name + '"') ne -1, count_thing)
     end
 
     ;system variable
     keyword_set(sysv):begin
-      idx_thing = where(strpos(toolDatabase, '"' + dbSearch) ne -1, count_thing)
+      name = dbSearch
+      idx_thing = where(strpos(toolDatabase, '"' + name) ne -1, count_thing)
     end
 
     ;control statements
     keyword_set(control):begin
+      name = dbSearch
       idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '"') ne -1, count_thing)
       if (count_thing eq 0) then begin
         idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '...') ne -1, count_thing)
@@ -123,7 +130,8 @@ pro update_replacer, $
     ;procedures
     keyword_set(procedure):begin
       ;duplaicate routiens start with the name and then Procedure afterwards (i.e. plot and plot())
-      idx_thing = where(strpos(toolDatabase, '"' + dbSearch + ' Procedure"') ne -1, count_thing)
+      name = dbSearch + ' Procedure"'
+      idx_thing = where(strpos(toolDatabase, '"' + name) ne -1, count_thing)
       if (count_thing eq 0) then begin
         idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '"') ne -1, count_thing)
       endif
@@ -131,6 +139,7 @@ pro update_replacer, $
 
     ;everything else, including functions
     else:begin
+      name = dbSearch
       idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '"') ne -1, count_thing)
     end
   endcase
@@ -149,30 +158,59 @@ pro update_replacer, $
       tt = strmid(splitTT[2], 1, strlen(splitTT[2])-2)
       link = strmid(splitTT[4], 1, strlen(splitTT[4])-2)
       inDB = 1
+      useLink = baselink
     endif
-  endif
+  endif else begin
+    ;check if we are in a custom tooltip
+    if keyword_set(custom_tooltips) then begin
+      if keyword_set(name) then begin
+        ;remove procedure
+        name = name.replace(' procedure', '')
+
+        ;check if we are a function
+        if keyword_set(func) then begin
+          name += '()'
+        endif
+        
+        ;check if we have a match
+        if custom_tooltips.hasKey('tooltips') then begin
+          ;extract tooltips
+          tts = custom_tooltips['tooltips']
+          
+          ;check if we have a match
+          if tts.hasKey(name) then begin
+            useLink = custom_tooltips['baselink']
+            tt = tts[name, 'tooltip']
+            link = tts[name, 'relative-path']
+            inDB = 1
+          endif
+        endif
+      endif
+    endif
+  endelse
 
   ;check how we need to modify our strings
   if (inDB) then begin
-    if keyword_set(tooltips) AND (tt ne '') then begin
-      replace = replacer + 'idl_tt" idl_tt="' + tt + '">' + name + "</font>"
+    if keyword_set(tooltips) AND keyword_set(tt) then begin
+      replace = replacer + 'idl_tt" idl_tt="' + tt + '">' + inName + "</font>"
     endif else begin
-      replace = replacer + '">' + name + '</font>'
+      replace = replacer + '">' + inName + '</font>'
     endelse
 
-    if keyword_set(docs_links) then begin
-      replace = '<a class="idl_docs_link" href="' + baselink  + link + '" target="_blank">' + replace + '</a>'
+    if keyword_set(docs_links) AND keyword_set(link) then begin
+      replace = '<a class="idl_docs_link" href="' + useLink  + link + '" target="_blank">' + replace + '</a>'
     endif
 
     replacer = replace
   endif else begin
-    replacer = replacer + '">' + name + '</font>'
+    replacer = replacer + '">' + inName + '</font>'
   endelse
-
 end
 
 
 ;+
+; :Private:
+; 
 ; :Description:
 ;    Function that splits strings into sections that we do and don't process
 ;
@@ -184,10 +222,10 @@ end
 ;    PROCESS: out, requried, type=bytarr
 ;      A byte array with 1/0 flags for processing or no processing.
 ;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 function splitString, str, PROCESS = process
-  compile_opt idl2
+  compile_opt idl2, hidden
   
   ;preallocate arrays to hole the 
   parts = strarr((strlen(str)/2 + 1) > 2)
@@ -335,6 +373,8 @@ function splitString, str, PROCESS = process
 end
 
 ;+
+; :Private:
+; 
 ; :Description:
 ;    Procedure to split strings that are to be processed and remove the
 ;    HTML tags from processing.
@@ -347,10 +387,10 @@ end
 ;
 ;
 ;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 pro secondSplit, strs, process
-  compile_opt idl2
+  compile_opt idl2, hidden
 
   ;find each expression
   expressions = ['IDL&[a-z0-9_]+;', 'ENVI&[a-z0-9_]+;', '&[a-z0-9_]+;']
@@ -423,13 +463,16 @@ end
 ;    is to read in the file once and re-use the HTMLIzer in multiple places.
 ;
 ;
+; :Private:
+;    CUSTOM_TOOLTIPS: in, optional, type=orderedhash, private
+;      Functionality that allows for custom tooltips when creating 
+;      documentation for packages built with the IDL Package Creator.
 ;
 ;
-;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
-function HTMLizer::init
-  compile_opt idl2
+function HTMLizer::init, CUSTOM_TOOLTIPS = custom_tooltips
+  compile_opt idl2, hidden
 
   ;set the default base link for the object
   self.BASELINK = 'https://www.harrisgeospatial.com/docs/'
@@ -483,6 +526,7 @@ function HTMLizer::init
 
   ;save our database as an object property
   self.ROUTINE_DB = ptr_new(toolDatabase)
+  if keyword_set(custom_tooltips) then self.CUSTOM_DB = custom_tooltips
 
   ;obtain list of current System Procedures from ROUTINE_INFO:
   sysProcedures = [strlowcase(routine_info(/SYSTEM)), 'return']
@@ -527,6 +571,13 @@ function HTMLizer::init
   return, 1
 end
 
+;+
+; :Description:
+;    Routine for cleaning up the HTMLizer object.
+;
+;
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
+;-
 pro HTMLizer::Cleanup
   compile_opt idl2
   obj_destroy, self
@@ -551,7 +602,7 @@ end
 ;    IDL_CONSOLE
 ;    STR_ORIG
 ;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 pro htmlizer::ProcessString, text, $
   CONTINUATION = continuation,$
@@ -560,7 +611,7 @@ pro htmlizer::ProcessString, text, $
   STRING_START = string_start,$
   IDL_CONSOLE = idl_console,$
   STR_ORIG = str_orig
-  compile_opt idl2
+  compile_opt idl2, hidden
   
   ;pre-allocate an array to hold our string contents for us
   strings = strarr(2)
@@ -727,8 +778,10 @@ pro htmlizer::ProcessString, text, $
       chars, new, toolDatabase,$
       SEARCH_REPLACE = funcMethodSearch,$
       /METHOD,$
+      /FUNC,$
       TOOLTIPS = tooltips,$
       DOCS_LINKS = docs_links,$
+      CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
       BASELINK = baselink
 
     ;save our updates
@@ -772,8 +825,10 @@ pro htmlizer::ProcessString, text, $
       chars, new, toolDatabase,$
       SEARCH_REPLACE = funcMethodSearch,$
       /METHOD,$
+      /FUNC,$
       TOOLTIPS = tooltips,$
       DOCS_LINKS = docs_links,$
+      CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
       BASELINK = baselink
 
     ;save our updates
@@ -884,6 +939,7 @@ pro htmlizer::ProcessString, text, $
         /METHOD,$
         TOOLTIPS = tooltips,$
         DOCS_LINKS = docs_links,$
+        CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
         BASELINK = baselink
     endelse
     
@@ -960,6 +1016,7 @@ pro htmlizer::ProcessString, text, $
       /METHOD,$
       TOOLTIPS = tooltips,$
       DOCS_LINKS = docs_links,$
+      CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
       BASELINK = baselink
 
     ;save our updates
@@ -1009,6 +1066,7 @@ pro htmlizer::ProcessString, text, $
       /FUNC,$
       TOOLTIPS = tooltips,$
       DOCS_LINKS = docs_links,$
+      CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
       BASELINK = baselink
 
     ;save our updates
@@ -1076,6 +1134,7 @@ pro htmlizer::ProcessString, text, $
       /CONTROL,$
       TOOLTIPS = tooltips,$
       DOCS_LINKS = docs_links,$
+      CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
       BASELINK = baselink
 
     ;check if we have a procedure or function being declared
@@ -1323,6 +1382,7 @@ pro htmlizer::ProcessString, text, $
       /PROC,$
       TOOLTIPS = tooltips,$
       DOCS_LINKS = docs_links,$
+      CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
       BASELINK = baselink
 
     ;save our updates
@@ -1427,6 +1487,7 @@ pro htmlizer::ProcessString, text, $
       /SYSV,$
       TOOLTIPS = tooltips,$
       DOCS_LINKS = docs_links,$
+      CUSTOM_TOOLTIPS = self.CUSTOM_DB,$
       BASELINK = baselink
 
     ;save our updates
@@ -1543,12 +1604,12 @@ end
 ;      When set, links to the documentation at harrisgeospatial.com will be added to
 ;      the code when functions, procedures, or methods match the CSV lookup table.
 ;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 function HTMLizer::HTMLize, textArr,$
   TOOLTIPS = tooltips,$
   DOCS_LINKS = docs_links
-  compile_opt idl2
+  compile_opt idl2, hidden
   
   ;duplicate our strings that we want to process
   strOrig = textArr
@@ -1632,10 +1693,10 @@ end
 ;
 ;
 ;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 function htmlizer_read_file, file
-  compile_opt idl2
+  compile_opt idl2, hidden
   on_error, 2
   strings = strarr(file_lines(file))
   if ~file_test(file) then message, 'File does not exist, cannot read.'
@@ -1658,10 +1719,10 @@ end
 ;
 ;
 ;
-; :Author: Zachary Norman - GitHub: znorman-harris
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
 pro htmlizer_write_file, file, strings
-  compile_opt idl2
+  compile_opt idl2, hidden
   dir = file_dirname(file)
   if ~file_test(dir) then file_mkdir, dir
   openw, lun, file, /GET_LUN
@@ -1683,10 +1744,10 @@ end
 ;
 ;
 ;
-; :Author: Zachary Norman - Github: znorman-harris
+; :Author: Zachary Norman - Github: [znorman-harris](https://github.com/znorman-harris)
 ;-
 pro htmlizer_copy_css, dir
-  compile_opt idl2
+  compile_opt idl2, hidden
   on_error, 2
   
   if (dir eq !NULL) then begin
@@ -1709,10 +1770,19 @@ pro htmlizer_copy_css, dir
   file_copy, css, dir, /OVERWRITE
 end
 
+;+
+; :Private:
+; 
+; :Description:
+;    Object definition fot the HTMLizer object.
+;
+;
+; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
+;-
 pro HTMLizer__define
   compile_opt idl2, hidden
   struct = {HTMLizer, $
-    INHERITS IDL_Object,$
+    inherits IDL_Object,$
 
     URI:'',$            ;file path to CropCenters object
     VERSION:'',$    ;flag whther or not we have the old version for the JSON file
@@ -1722,47 +1792,9 @@ pro HTMLizer__define
 
     ;text file contents of our routines
     ROUTINE_DB:ptr_new(),$
+    CUSTOM_DB: orderedhash(),$
       
     ;base link for content
     BASELINK:''$
   }
 end
-
-;main level program that shown an example of how you can use the routine
-
-;specify our input file
-inputFile = file_which('python__define.pro')
-
-;read in plot.pro
-strings = htmlizer_read_file(inputFile)
-
-;initialize the object
-html = htmlizer()
-
-;process some strings
-coloredStrings = html.Htmlize(strings, /DOCS_LINKS, /TOOLTIPS)
-
-;clean up
-html.cleanup
-
-;make our strings an official HTML file
-coloredStrings = $
-  ['<html><head><link rel="stylesheet" type="text/css" href="./idl-styles.css"></head><body>',$
-  coloredStrings,$
-  '</body></html>']
-
-;set up our output file
-outFile = filepath(file_basename(inputFile, '.pro') + '.html', /TMP)
-
-;write tot disk
-htmlizer_write_file, outFile, coloredStrings
-
-;copy CSS to output directory
-htmlizer_copy_css, file_dirname(outFile)
-
-print, 'Output file : ' + outFile
-
-end
-
-
-
