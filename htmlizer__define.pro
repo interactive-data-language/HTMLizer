@@ -786,9 +786,25 @@ pro htmlizer::ProcessString, text, $
 
     ;save our updates
     if (i eq 0) then begin
+      ;we made it this far, check if we are in parenthesis or not
+      ;if we are, we are not the start of the string, i.e. (this.that()).method,
+      posParen = stregex(text, '\(([^)]+)\)', LENGTH  = lParen)
+      
+      ;set our start flag accordingly
+      case (1) of
+        ;no paren
+        (posParen eq -1): string_start = 0
+        
+        ;between start and end
+        ((posParen lt start) AND (start lt (posParen + lParen))): string_start = 1
+        
+        ;default
+        else: string_start = 0
+      endcase
+      
+      ;extract the string
       strings = [strmid(text, 0, start), new, strmid(text, start+length), strings[i+1:-1]]
       process = [1, 0, 1, process[i+1:-1]]
-      string_start = 0
     endif else begin
       strings = [strings[0:(i-1)>0], strmid(text, 0, start), new, strmid(text, start+length), strings[i+1:-1]]
       process = [process[0:(i-1)>0], 1, 0, 1, process[i+1:-1]]
@@ -833,9 +849,24 @@ pro htmlizer::ProcessString, text, $
 
     ;save our updates
     if (i eq 0) then begin
+      ;we made it this far, check if we are in parenthesis or not
+      ;if we are, we are not the start of the string, i.e. (this.that()).method,
+      posParen = stregex(text, '\(([^)]+)\)', LENGTH  = lParen)
+
+      ;set our start flag accordingly
+      case (1) of
+        ;no paren
+        (posParen eq -1): string_start = 0
+
+        ;between start and end
+        ((posParen lt start) AND (start lt (posParen + lParen))): string_start = 1
+
+        ;default
+        else: string_start = 0
+      endcase
+      
       strings = [strmid(text, 0, start), new, strmid(text, start+length), strings[i+1:-1]]
       process = [1, 0, 1, process[i+1:-1]]
-      string_start = 0
     endif else begin
       strings = [strings[0:(i-1)>0], strmid(text, 0, start), new, strmid(text, start+length), strings[i+1:-1]]
       process = [process[0:(i-1)>0], 1, 0, 1, process[i+1:-1]]
@@ -867,6 +898,7 @@ pro htmlizer::ProcessString, text, $
     ;get the next character
     nextChar = strmid(text,start+length,1)
     
+    ;make sure we are not a property
     if (total(nextChar eq ['.']) gt 0) then begin
       ; i.e. this.that, THIS = 5, THAT = 6
       add = start+length
@@ -901,7 +933,7 @@ pro htmlizer::ProcessString, text, $
     
     ;check to make sure that, if there are strings after the name that there is 
     ;a comma present. otherwise we probably have a property
-    if (strtrim(strmid(text, (start + length + 1) < strlen(text)),2) ne '') AND (commaStart eq -1) then continue
+    if (strtrim(strmid(text, start + length + 1),2) ne '') AND (commaStart eq -1) then continue
 
     ;get original starting point
     startOrig = start
@@ -1256,7 +1288,6 @@ pro htmlizer::ProcessString, text, $
 
     ;recursively search the string
     while (start ne -1) do begin
-      
       ;check if special escape character for HTML with gt or lt
       ;if found, search rest of string, otherwise break
       charBefore = strmid(text, start-1, 1)
@@ -1299,7 +1330,6 @@ pro htmlizer::ProcessString, text, $
       endif
     endif
     
-    
     ;check for us being wihtin a function call
     posFunc = stregex(text, '\([^]]+\)', LENGTH = funcLength)
     if (posFunc ne -1) then begin
@@ -1311,9 +1341,8 @@ pro htmlizer::ProcessString, text, $
     ;check if we are within the start of a function call that does not end on this line
     ;this could be robustified, but will cover most cases
     posFunc = strpos(text, '(')
-    posContinue = strpos(text, '$')
     if (posFunc ne -1) then begin
-      if (start gt posFunc) AND (posContinue ne -1) then begin
+      if (start gt posFunc) then begin
         continue
       endif
     endif
@@ -1797,4 +1826,41 @@ pro HTMLizer__define
     ;base link for content
     BASELINK:''$
   }
+end
+
+;main level program that shown an example of how you can use the routine
+
+;specify our input file
+inputFile = file_which('python__define.pro')
+
+;read in plot.pro
+strings = htmlizer_read_file(inputFile)
+strings = '(it->expects())->toFindInArray, scalar'
+
+;initialize the object
+html = htmlizer()
+
+;process some strings
+coloredStrings = html.Htmlize(strings, /DOCS_LINKS, /TOOLTIPS)
+
+;clean up
+html.cleanup
+
+;make our strings an official HTML file
+coloredStrings = $
+  ['<html><head><link rel="stylesheet" type="text/css" href="./idl-styles.css"></head><body>',$
+  coloredStrings,$
+  '</body></html>']
+
+;set up our output file
+outFile = filepath(file_basename(inputFile, '.pro') + '.html', /TMP)
+
+;write tot disk
+htmlizer_write_file, outFile, coloredStrings
+
+;copy CSS to output directory
+htmlizer_copy_css, file_dirname(outFile)
+
+print, 'Output file : ' + outFile
+
 end
