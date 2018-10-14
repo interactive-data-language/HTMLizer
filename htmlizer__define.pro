@@ -788,7 +788,7 @@ pro htmlizer::ProcessString, text, $
     if (i eq 0) then begin
       ;we made it this far, check if we are in parenthesis or not
       ;if we are, we are not the start of the string, i.e. (this.that()).method,
-      posParen = stregex(text, '\(([^)]+)\)', LENGTH  = lParen)
+      posParen = stregex(str_orig, '\(([^)]+)\)', LENGTH  = lParen)
       
       ;set our start flag accordingly
       case (1) of
@@ -851,7 +851,7 @@ pro htmlizer::ProcessString, text, $
     if (i eq 0) then begin
       ;we made it this far, check if we are in parenthesis or not
       ;if we are, we are not the start of the string, i.e. (this.that()).method,
-      posParen = stregex(text, '\(([^)]+)\)', LENGTH  = lParen)
+      posParen = stregex(str_orig, '\(([^)]+)\)', LENGTH  = lParen)
 
       ;set our start flag accordingly
       case (1) of
@@ -1680,15 +1680,21 @@ function HTMLizer::HTMLize, textArr,$
       str_orig = ''
     endelse
     
+    ;initialize our flag for the strings start
+    ;we can have syntax of the form (someFunc()).proMethod which
+    ;should still include .proMethod as a method to check
+    start_flag = 1
+    
     ;iterate over each good portion of the line
     foreach subStr, strings, j do begin
+      ;make sure we can process our substring
       if (process[j]) then begin
         ;add color to the string
         self.processString, subStr, $
           CONTINUATION = continuation,$
           TOOLTIPS = tooltips,$
           DOCS_LINKS = docs_links,$
-          STRING_START = j eq 0,$
+          STRING_START = start_flag,$
           IDL_CONSOLE = idl_console,$
           STR_ORIG = str_orig
 
@@ -1835,7 +1841,6 @@ inputFile = file_which('python__define.pro')
 
 ;read in plot.pro
 strings = htmlizer_read_file(inputFile)
-strings = '(it->expects())->toFindInArray, scalar'
 
 ;initialize the object
 html = htmlizer()
