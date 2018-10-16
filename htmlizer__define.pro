@@ -530,20 +530,17 @@ function HTMLizer::init, CUSTOM_TOOLTIPS = custom_tooltips
   endif
 
   ;get the current directory
-  thisdir = file_dirname(((scope_traceback(/STRUCT))[-1]).FILENAME)
+  thisdir = file_dirname(routine_filepath())
 
   ;check for the CSV file
-  funcCSV = thisdir + path_sep() + 'idl_routines.csv'
-  if ~file_test(funcCSV) then begin
-    message, 'idl_routines.csv not found in the same directory as this file, required for tooltips or docs links!'
+  routines = thisdir + path_sep() + 'idl_routines.sav'
+  if ~file_test(routines) then begin
+    message, 'idl_routines.sav not found in the same directory as this file, required for tooltips or docs links!'
   endif
-
-  ;read in the CSV file
-  nlines = file_lines(funcCSV)
-  toolDatabase = strarr(nlines)
-  openr, lun, funcCSV, /GET_LUN
-  readf, lun, toolDatabase
-  free_lun, lun
+  
+  ;restore the strings for our CSV file which has a variable called toolDatabase
+  ;in it
+  restore, routines
 
   ;parse strigns
   posTwo = strpos(toolDatabase, ';;')
@@ -1768,6 +1765,65 @@ pro htmlizer_write_file, file, strings
   free_lun, lun
 end
 
+
+;+
+; :Description:
+;    Exports the contents of the IDL SAVE file that
+;    contains the routines to disk for editing.
+;
+;
+;
+; :Author: Zachary Norman - GitHub: znorman-harris
+;-
+pro htmlizer_export_csv
+  compile_opt idl2, hidden
+  
+  ;get the current directory
+  thisdir = file_dirname(routine_filepath())
+
+  ;check for the CSV file
+  routines = thisdir + path_sep() + 'idl_routines.sav'
+  if ~file_test(routines) then begin
+    message, 'idl_routines.sav not found in the same directory as this file, required for tooltips or docs links!'
+  endif
+  
+  ;read in the strings
+  restore, routines
+  
+  ;write the strings to disk
+  htmlizer_write_file, thisdir + path_sep() + 'idl_routines.csv', toolDatabase
+end
+
+
+;+
+; :Description:
+;    Updates the contents of the IDL SAVE file that
+;    contains the routines for tooltips and documentation
+;    by reading from a file called idl_routines.csv in this
+;    directory.
+;
+;
+;
+; :Author: Zachary Norman - GitHub: znorman-harris
+;-
+pro htmlizer_import_csv
+  compile_opt idl2, hidden
+
+  ;get the current directory
+  thisdir = file_dirname(routine_filepath())
+
+  ;check for the CSV file
+  routines = thisdir + path_sep() + 'idl_routines.csv'
+  if ~file_test(routines) then begin
+    message, 'idl_routines.csv not found in the same directory as this file, required for tooltips or docs links!'
+  endif
+  
+  ;read in the strings
+  toolDatabase = htmlizer_read_file(routines)
+  
+  ;save them to disk with compression
+  save, toolDatabase, /COMPRESS, FILE = thisdir + path_sep() + 'idl_routines.sav'
+end
 
 
 ;+

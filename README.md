@@ -50,6 +50,17 @@ print, 'Output file : ' + outFile
 ```
 
 
+## Updating the Routines
+
+In order to update the routines you will need to do two things:
+
+1. Run the routine `htmlizer_export_csv` which will read in the `idl_routines.sav` file and export it to `idl_routines.csv`.
+
+2. Make changes to the `idl_routines.csv` file and then run `htmlizer_import_csv` which will then update `idl_routines.csv`
+
+Take a look at the idl_routines.csv file for what the syntax should be for adding additional rows of information.
+
+
 ## License
 
 © 2018 Harris Geospatial Solutions, Inc.
