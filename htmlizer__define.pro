@@ -1,10 +1,15 @@
-; Copyright (c)  Exelis Visual Information Solutions, Inc., a subsidiary of Harris Corporation.
+;h+
+; (c) 2018 Harris Geospatial Solutions, Inc.
+;
+; Licensed under MIT. See LICENSE.txt for additional details and information.
+;h-
+
 ;+
 ;
 ;  Object that colorizes IDL code with CSS classes for use in
 ;  web pages. Code uses regular expressions and some fancy logic behind the
 ;  scenes to duplicate the same syntax highlighting that you see in the IDL
-;  workbench. See the main level program at the bottom of the file for and
+;  workbench. See the main level program at the bottom of the file for an
 ;  example of how to use the code.
 ;  
 ; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
@@ -224,18 +229,21 @@ end
 ;
 ; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
-function splitString, str, PROCESS = process
+function splitString, str, PROCESS = process, STRING_START = string_start, ALREADY_SPLIT = already_split
   compile_opt idl2, hidden
   
   ;preallocate arrays to hole the 
   parts = strarr((strlen(str)/2 + 1) > 2)
   process = bytarr((strlen(str)/2 + 1) > 2) + 1b
+  string_start = bytarr((strlen(str)/2 + 1) > 2)
+  string_start[0] = 1
   
   ;check if we don't want to color our line
   if (strpos(str, '!NOCOLOR') eq 0) then begin
     str = strmid(str, 9)
     replaceHTMLChars, str
     process = [0]
+    string_start = [1]
     return, [str]
   endif
 
@@ -244,6 +252,7 @@ function splitString, str, PROCESS = process
     str = '      ' + strmid(str, 9)
     replaceHTMLChars, str
     process = [0]
+    string_start = [1]
     return, [str]
   endif
 
@@ -254,6 +263,7 @@ function splitString, str, PROCESS = process
     replaceHTMLChars, str
     str = '<font class="idl_bold">' + str + '</font>'
     process = [0]
+    string_start = [1]
     return, [str]
   endif
 
@@ -264,111 +274,136 @@ function splitString, str, PROCESS = process
     replaceHTMLChars, str
     str = '<font class="idl_gray">' + str + '</font>'
     process = [0]
+    string_start = [1]
     return, [str]
   endif
   
-  ;counter for how many parts we really have
-  nparts = 0
-  
-  ;get the positions of our splitters
-  positions = [strpos(str, ';'), strpos(str, '"'), strpos(str, "'")]
-  idx_ok = where(positions ne -1, count_ok)
-  
-  ;nothing to split
-  if (count_ok eq 0) then begin
-    process = [1]
-    replaceHTMLChars, str
-    return, [str]
+  ;first, split everything into paren or not by looking for
+  ;string of the form "(expression).something"
+  posParen = stregex(str, '\(.*\)\.', LENGTH  = lParen)
+  if (posParen eq 0) AND ~keyword_set(already_split) then begin
+    ;split!
+    front = strmid(str, 0, posParen + lParen - 2)
+    back = strmid(str, posParen + lParen - 2)
+    
+    ;process front and back
+    parts = [ $
+      splitString(front, PROCESS = processFront, STRING_START = startFront, /ALREADY_SPLIT), $
+      splitString(back, PROCESS = processBack, STRING_START = startBack, /ALREADY_SPLIT) $
+      ]
+      
+    ;join process flags
+    process = [processFront, processBack]
+    
+    ;set flags for if we are the start of the string or not
+    string_start = [startFront*0, startBack]
   endif else begin
+    ;counter for how many parts we really have
+    nparts = 0
 
-    ;iterate!
-    while (count_ok gt 0) do begin
-      ;figure out what we are dealing with here
-      case min(positions[idx_ok]) of
-        ;semi-colon
-        positions[0]:begin
-          type = 0b
-          startPos = positions[0]
-          endPos = strlen(str)
-        end
-        
-        ;double quote
-        positions[1]:begin
-          type = 1b
-          startPos = positions[1]
-          endPos = strpos(strmid(str, startPos+1), '"')
-          if (endPos eq -1) then begin
-            endPos = strlen(str)
-          endif
-        end
-        
-        ;single-quote
-        positions[2]:begin
-          type = 2b
-          startPos = positions[2]
-          endPos = strpos(strmid(str, startPos+1), "'")
-          if (endPos eq -1) then begin
-            endPos = strlen(str)
-          endif
-        end
-      endcase
-      
-      ;save the beginning of the string
-      parts[nparts] = strmid(str, 0, startPos)
+    ;get the positions of our splitters
+    positions = [strpos(str, ';'), strpos(str, '"'), strpos(str, "'")]
+    idx_ok = where(positions ne -1, count_ok)
 
-      ;increment our counter
-      nparts++
-      
-      ;get the mid portion of our string
-      mid = strmid(str, startPos, endPos+2)
-      
-      ;replace any bad characters that might be in the strings
-      replaceHTMLChars, mid
-      
-      if (type eq 1) or (type eq 2) then begin
-        if (strpos(mid, "'") ne -1) then mid = mid.replace("'", '&#39;')
-        if (strpos(mid, '"') ne -1) then mid = mid.replace('"', '&#34;')
+    ;nothing to split
+    if (count_ok eq 0) then begin
+      process = [1]
+      string_start = [1]
+      replaceHTMLChars, str
+      return, [str]
+    endif else begin
+
+      ;iterate!
+      while (count_ok gt 0) do begin
+        ;figure out what we are dealing with here
+        case min(positions[idx_ok]) of
+          ;semi-colon
+          positions[0]:begin
+            type = 0b
+            startPos = positions[0]
+            endPos = strlen(str)
+          end
+
+          ;double quote
+          positions[1]:begin
+            type = 1b
+            startPos = positions[1]
+            endPos = strpos(strmid(str, startPos+1), '"')
+            if (endPos eq -1) then begin
+              endPos = strlen(str)
+            endif
+          end
+
+          ;single-quote
+          positions[2]:begin
+            type = 2b
+            startPos = positions[2]
+            endPos = strpos(strmid(str, startPos+1), "'")
+            if (endPos eq -1) then begin
+              endPos = strlen(str)
+            endif
+          end
+        endcase
+
+        ;save the beginning of the string
+        parts[nparts] = strmid(str, 0, startPos)
+
+        ;increment our counter
+        nparts++
+
+        ;get the mid portion of our string
+        mid = strmid(str, startPos, endPos+2)
+
+        ;replace any bad characters that might be in the strings
+        replaceHTMLChars, mid
+
+        if (type eq 1) or (type eq 2) then begin
+          if (strpos(mid, "'") ne -1) then mid = mid.replace("'", '&#39;')
+          if (strpos(mid, '"') ne -1) then mid = mid.replace('"', '&#34;')
+        endif
+
+        case type of
+          0: type = 'class="idl_comment"'
+          1: type = 'class="idl_str"'
+          2: type = 'class="idl_str"'
+        endcase
+
+        ;save the part of our string that we don't want to process
+        parts[nparts] =  '<font ' + type + '>' + mid + '</font>'
+        process[nparts] = 0
+
+        ;update our string component
+        str = strmid(str, startpos + endPos + 2)
+
+        ;increment our counter
+        nparts ++
+
+        ;get the positions of our splitters
+        positions = [strpos(str, ';'), strpos(str, '"'), strpos(str, "'")]
+        idx_ok = where(positions gt 0, count_ok)
+      endwhile
+
+      ;check if we need to save the last part of the strings
+      if (strtrim(str,2) ne '') then begin
+        parts[nparts] = str
+        nparts++
       endif
-    
-      case type of
-        0: type = 'class="idl_comment"'
-        1: type = 'class="idl_str"'
-        2: type = 'class="idl_str"'
-      endcase
-      
-      ;save the part of our string that we don't want to process
-      parts[nparts] =  '<font ' + type + '>' + mid + '</font>'
-      process[nparts] = 0
-      
-      ;update our string component
-      str = strmid(str, startpos + endPos + 2)
-  
-      ;increment our counter
-      nparts ++
-      
-      ;get the positions of our splitters
-      positions = [strpos(str, ';'), strpos(str, '"'), strpos(str, "'")]
-      idx_ok = where(positions gt 0, count_ok)
-    endwhile
-    
-    ;check if we need to save the last part of the strings
-    if (strtrim(str,2) ne '') then begin
-      parts[nparts] = str
-      nparts++
-    endif
+    endelse
+
+    foreach part, parts, i do begin
+      if ~process[i] then continue
+      if (i eq (nparts-1)) then break
+      replaceHTMLChars, part
+      parts[i] = part
+    endforeach
+
+    ;get the good parts of our arrays
+    parts = parts[0:nparts-1]
+    process = process[0:nparts-1]
+    string_start = string_start[0:nparts-1]
   endelse
   
-  foreach part, parts, i do begin
-    if ~process[i] then continue
-    if (i eq (nparts-1)) then break 
-    replaceHTMLChars, part
-    parts[i] = part
-  endforeach
-  
-  ;get the good parts of our arrays
-  parts = parts[0:nparts-1]
-  process = process[0:nparts-1]
-
+  ;return our parts
   return, parts
 end
 
@@ -389,7 +424,7 @@ end
 ;
 ; :Author: Zachary Norman - GitHub: [znorman-harris](https://github.com/znorman-harris)
 ;-
-pro secondSplit, strs, process
+pro secondSplit, strs, process, string_start
   compile_opt idl2, hidden
 
   ;find each expression
@@ -421,6 +456,7 @@ pro secondSplit, strs, process
         ;find which strings to use by excluding null strings
         add = [front, sub, back]
         addP = [1, 0, 1]
+        addS = [0, 0, 0]
         idxOk = where(add ne '', countOk)
         
         ;process the string accordingly
@@ -430,21 +466,25 @@ pro secondSplit, strs, process
             (n_elements(process) eq 1): begin
               strs = add[idxOk]
               process = addP[idxOk]
+              string_start = addS[idxOk]
             end
             ;first element of the array
             (i eq 0):begin
               strs = [add[idxOk], strs[(i+1)<(n_elements(process)):-1]]
               process = [addP[idxOk], process[(i+1)<(n_elements(process)):-1]]
+              string_start = [addS[idxOk], string_start[(i+1)<(n_elements(process)):-1]]
             end
             ;last element of the array
             (i eq (n_elements(process)-1)): begin
               strs = [strs[0:i-1], add[idxOk]]
               process = [process[0:i-1], addP[idxOk]]
+              string_start = [string_start[0:i-1], addS[idxOk]]
             end
             ;otherwise in the middle
             else:begin
               strs = [strs[0:i-1], add[idxOk], strs[(i+1)<(n_elements(process)):-1]]
               process = [process[0:i-1], addP[idxOk], process[(i+1)<(n_elements(process)):-1]]
+              string_start = [string_start[0:i-1], addS[idxOk], string_start[(i+1)<(n_elements(process)):-1]]
             end
           endcase
         endif
@@ -786,22 +826,6 @@ pro htmlizer::ProcessString, text, $
 
     ;save our updates
     if (i eq 0) then begin
-      ;we made it this far, check if we are in parenthesis or not
-      ;if we are, we are not the start of the string, i.e. (this.that()).method,
-      posParen = stregex(str_orig, '\(([^)]+)\)', LENGTH  = lParen)
-      
-      ;set our start flag accordingly
-      case (1) of
-        ;no paren
-        (posParen eq -1): string_start = 0
-        
-        ;between start and end
-        ((posParen lt start) AND (start lt (posParen + lParen))): string_start = 1
-        
-        ;default
-        else: string_start = 0
-      endcase
-      
       ;extract the string
       strings = [strmid(text, 0, start), new, strmid(text, start+length), strings[i+1:-1]]
       process = [1, 0, 1, process[i+1:-1]]
@@ -849,22 +873,6 @@ pro htmlizer::ProcessString, text, $
 
     ;save our updates
     if (i eq 0) then begin
-      ;we made it this far, check if we are in parenthesis or not
-      ;if we are, we are not the start of the string, i.e. (this.that()).method,
-      posParen = stregex(str_orig, '\(([^)]+)\)', LENGTH  = lParen)
-
-      ;set our start flag accordingly
-      case (1) of
-        ;no paren
-        (posParen eq -1): string_start = 0
-
-        ;between start and end
-        ((posParen lt start) AND (start lt (posParen + lParen))): string_start = 1
-
-        ;default
-        else: string_start = 0
-      endcase
-      
       strings = [strmid(text, 0, start), new, strmid(text, start+length), strings[i+1:-1]]
       process = [1, 0, 1, process[i+1:-1]]
     endif else begin
@@ -1667,10 +1675,10 @@ function HTMLizer::HTMLize, textArr,$
     endelse
     
     ;split up our line into sections that we can and cannot process
-    strings = splitString(str, PROCESS = process)
+    strings = splitString(str, PROCESS = process, STRING_START = string_start)
     
     ;split based on HTML replace characters, helps greatly simplify string extraction
-    secondSplit, strings, process
+    secondSplit, strings, process, string_start
     
     ;build our "original" string with the pieces that will be processed
     idxJoin = where(process, countJoin)
@@ -1679,12 +1687,7 @@ function HTMLizer::HTMLize, textArr,$
     endif else begin
       str_orig = ''
     endelse
-    
-    ;initialize our flag for the strings start
-    ;we can have syntax of the form (someFunc()).proMethod which
-    ;should still include .proMethod as a method to check
-    start_flag = 1
-    
+
     ;iterate over each good portion of the line
     foreach subStr, strings, j do begin
       ;make sure we can process our substring
@@ -1694,7 +1697,7 @@ function HTMLizer::HTMLize, textArr,$
           CONTINUATION = continuation,$
           TOOLTIPS = tooltips,$
           DOCS_LINKS = docs_links,$
-          STRING_START = start_flag,$
+          STRING_START = string_start[j],$
           IDL_CONSOLE = idl_console,$
           STR_ORIG = str_orig
 
@@ -1843,10 +1846,10 @@ inputFile = file_which('python__define.pro')
 strings = htmlizer_read_file(inputFile)
 
 ;initialize the object
-html = htmlizer()
+html = HTMLizer()
 
 ;process some strings
-coloredStrings = html.Htmlize(strings, /DOCS_LINKS, /TOOLTIPS)
+coloredStrings = html.HTMLize(strings, /DOCS_LINKS, /TOOLTIPS)
 
 ;clean up
 html.cleanup
@@ -1860,7 +1863,7 @@ coloredStrings = $
 ;set up our output file
 outFile = filepath(file_basename(inputFile, '.pro') + '.html', /TMP)
 
-;write tot disk
+;write to disk
 htmlizer_write_file, outFile, coloredStrings
 
 ;copy CSS to output directory
