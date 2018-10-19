@@ -58,7 +58,14 @@ In order to update the routines you will need to do two things:
 
 2. Make changes to the `idl_routines.csv` file and then run `htmlizer_import_csv` which will then update `idl_routines.csv`
 
-Take a look at the idl_routines.csv file for what the syntax should be for adding additional rows of information.
+Take a look at the idl_routines.csv file for what the syntax should be for adding additional rows of information before running `htmlizer_import_csv`.
+
+
+## Performance Updates
+
+The original version of this routine takes about **4.5** seconds to process the PRO code in the main level program. In the latest version, it now takes about **0.7** seconds to process the same file which is an 85% reduction in processing time. This is because of the more efficient way that the data is being stored for tooltips and documentation links. The plus side to this is that, for larger routines, the HTMLizer will be much faster, but there is a slight overhead for smaller files.
+
+When you first create the object it will "unpack" the idl_routines.sav file into an optimized data structure for faster access.Once this file has been created, it will keep using the SAVE file on disk. In addition to this, when colorizing many files at once, this routine also uses system variables so that only one instance of the object needs to restore the SAVE file for the object which is re-used between instances. Without the re-use, there is about a 0.2 second overhead when creating the object which, while small, can add up when you are making documentation for larger projects.
 
 
 ## License

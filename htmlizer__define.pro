@@ -114,21 +114,22 @@ pro update_replacer, $
     ;function method
     keyword_set(method):begin
       name = '::' + dbSearch
-      idx_thing = where(strpos(toolDatabase, name + '"') ne -1, count_thing)
+      inDB = toolDatabase.hasKey(name)
     end
 
     ;system variable
     keyword_set(sysv):begin
       name = dbSearch
-      idx_thing = where(strpos(toolDatabase, '"' + name) ne -1, count_thing)
+      inDB = toolDatabase.hasKey(name)
     end
 
     ;control statements
     keyword_set(control):begin
       name = dbSearch
-      idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '"') ne -1, count_thing)
-      if (count_thing eq 0) then begin
-        idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '...') ne -1, count_thing)
+      inDB = toolDatabase.hasKey(name)
+      if ~inDb then begin
+        name += + '...'
+        inDB = toolDatabase.hasKey(name)
       endif
     end
 
@@ -136,35 +137,26 @@ pro update_replacer, $
     keyword_set(procedure):begin
       ;duplaicate routiens start with the name and then Procedure afterwards (i.e. plot and plot())
       name = dbSearch + ' Procedure"'
-      idx_thing = where(strpos(toolDatabase, '"' + name) ne -1, count_thing)
-      if (count_thing eq 0) then begin
-        idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '"') ne -1, count_thing)
+      inDB = toolDatabase.hasKey(name)
+      if ~inDB then begin
+        name = dbSearch
+        inDB = toolDatabase.hasKey(name)
       endif
     end
 
     ;everything else, including functions
     else:begin
       name = dbSearch
-      idx_thing = where(strpos(toolDatabase, '"' + dbSearch + '"') ne -1, count_thing)
+      inDB = toolDatabase.hasKey(name)
     end
   endcase
 
   ;see if we found the entry we were searching for
-  if (count_thing eq 1) then begin
-    ttLine = toolDatabase[idx_thing[0]]
-
-    ;split the line
-    splitTT = strsplit(ttLine, ';', /EXTRACT)
-
-    ;make sure we have a valid line with 6 split components
-    ;just a sanity check to make sure that nothing is missing
-    if (n_elements(splitTT) eq 6) then begin
-      ;get the tooltip and the link (always same position)
-      tt = strmid(splitTT[2], 1, strlen(splitTT[2])-2)
-      link = strmid(splitTT[4], 1, strlen(splitTT[4])-2)
-      inDB = 1
-      useLink = baselink
-    endif
+  if (inDB) then begin
+    lookup = toolDatabase[name]
+    tt = lookup.tooltip
+    link = lookup.link
+    useLink = baselink
   endif else begin
     ;check if we are in a custom tooltip
     if keyword_set(custom_tooltips) then begin
@@ -531,38 +523,47 @@ function HTMLizer::init, CUSTOM_TOOLTIPS = custom_tooltips
 
   ;get the current directory
   thisdir = file_dirname(routine_filepath())
-
-  ;check for the CSV file
-  routines = thisdir + path_sep() + 'idl_routines.sav'
-  if ~file_test(routines) then begin
-    message, 'idl_routines.sav not found in the same directory as this file, required for tooltips or docs links!'
-  endif
   
-  ;restore the strings for our CSV file which has a variable called toolDatabase
-  ;in it
-  restore, routines
-
-  ;parse strigns
-  posTwo = strpos(toolDatabase, ';;')
-  idx_change = where( strpos(toolDatabase, ';;') ne -1, count_change)
-  if (count_change gt 0) then begin
-    toolDatabase[idx_change] = toolDatabase[idx_change].replace(';;', '; ;')
-  endif
-
-  ;make all of the functions/procedures uppercase in our database
-  foreach line, toolDatabase, idx do begin
-    split = strsplit(line, ';', /EXTRACT)
-    if (n_elements(split) eq 6) then begin
-      up = strupcase(split[1])
-      if (up ne split[1]) then begin
-        split[1] = up
-        toolDatabase[idx] = strjoin(split, ';')
-      endif
+  ;check if we already have an htmlizer
+  defsysv, '!htmlizer', EXISTS = exists
+  if ~exists then begin
+    ;check if our tooltips exist or not and create the super-fast-access hash
+    tooltips = thisdir + path_sep() + 'idl_tooltips.sav'
+    if ~file_test(tooltips) then begin
+      htmlizer_sav_to_hash
     endif
-  endforeach
 
+    ;restore the tooltips
+    restore, tooltips
+
+    ;verify we have routines
+    if ~isa(tooltips, 'hash') then begin
+      message, 'idl_tooltips.sav does not contain a variable called "tooltips", required!'
+    endif
+  endif else begin
+    if ~obj_valid(!htmlizer) then begin
+      ;check if our tooltips exist or not and create the super-fast-access hash
+      tooltips = thisdir + path_sep() + 'idl_tooltips.sav'
+      if ~file_test(tooltips) then begin
+        htmlizer_sav_to_hash
+      endif
+
+      ;restore the tooltips
+      restore, tooltips
+
+      ;verify we have routines
+      if ~isa(tooltips, 'hash') then begin
+        message, 'idl_tooltips.sav does not contain a variable called "tooltips", required!'
+      endif
+    endif else begin
+      tooltips = !htmlizer
+    endelse
+  endelse
+  
   ;save our database as an object property
-  self.ROUTINE_DB = ptr_new(toolDatabase)
+  self.ROUTINE_DB = tooltips
+  
+  ;check for custom tooltips
   if keyword_set(custom_tooltips) then self.CUSTOM_DB = custom_tooltips
 
   ;obtain list of current System Procedures from ROUTINE_INFO:
@@ -581,7 +582,6 @@ function HTMLizer::init, CUSTOM_TOOLTIPS = custom_tooltips
   if (count_keep gt 0) then begin
     sysFunctions = temporary(sysFunctions[idx_keep])
   endif
-
 
   ;add modifications to our things we want to search for
   sysFunctions = [sysFunctions, 'hash', 'orderedhash', 'list', 'idltask']
@@ -604,6 +604,12 @@ function HTMLizer::init, CUSTOM_TOOLTIPS = custom_tooltips
 
   ;save to object definition
   self.SEARCH_FOR = datNames
+  
+  ;check if we already have an htmlizer
+  defsysv, '!htmlizer', EXISTS = exists
+  if ~exists then begin
+    defsysv, '!htmlizer', tooltips
+  endif
 
   return, 1
 end
@@ -703,7 +709,7 @@ pro htmlizer::ProcessString, text, $
   okPro = ['then', 'else', 'do']
   
   ;get our tool database
-  toolDatabase = *self.ROUTINE_DB
+  toolDatabase = self.ROUTINE_DB
   
   ;replace any bad characters in the substring
   replaceHTMLChars, text
@@ -1758,6 +1764,7 @@ end
 ;-
 pro htmlizer_write_file, file, strings
   compile_opt idl2, hidden
+  on_error, 2
   dir = file_dirname(file)
   if ~file_test(dir) then file_mkdir, dir
   openw, lun, file, /GET_LUN
@@ -1777,6 +1784,7 @@ end
 ;-
 pro htmlizer_export_csv
   compile_opt idl2, hidden
+  on_error, 2
   
   ;get the current directory
   thisdir = file_dirname(routine_filepath())
@@ -1787,7 +1795,7 @@ pro htmlizer_export_csv
     message, 'idl_routines.sav not found in the same directory as this file, required for tooltips or docs links!'
   endif
   
-  ;read in the strings
+  ;load in our files
   restore, routines
   
   ;write the strings to disk
@@ -1817,12 +1825,127 @@ pro htmlizer_import_csv
   if ~file_test(routines) then begin
     message, 'idl_routines.csv not found in the same directory as this file, required for tooltips or docs links!'
   endif
-  
+
+  ;because we are importing, lets clean up the unpacked file to recreate our cache file
+  tooltips = thisdir + path_sep() + 'idl_tooltips.sav'
+  if file_test(tooltips) then begin
+    file_delete, tooltips
+  endif
+
   ;read in the strings
   toolDatabase = htmlizer_read_file(routines)
-  
+
   ;save them to disk with compression
   save, toolDatabase, /COMPRESS, FILE = thisdir + path_sep() + 'idl_routines.sav'
+end
+
+
+;+
+; :Description:
+;    Updates the contents of the IDL SAVE file that
+;    contains the routines for tooltips and documentation
+;    by reading from a file called idl_routines.csv in this
+;    directory.
+;
+;
+;
+; :Author: Zachary Norman - GitHub: znorman-harris
+;-
+pro htmlizer_sav_to_hash
+  compile_opt idl2, hidden
+  
+  ;alert user
+  print, 'Tooltip hash not created yet, processing tooltips...'
+
+  ;get the current directory
+  thisdir = file_dirname(routine_filepath())
+
+  ;check for the CSV file
+  routines = thisdir + path_sep() + 'idl_routines.sav'
+  if ~file_test(routines) then begin
+    message, 'idl_routines.sav not found in the same directory as this file, required for tooltips or docs links!'
+  endif
+  
+  ;restore our file
+  restore, routines
+  
+  ;verify valid save file
+  if ~keyword_set(toolDatabase) then begin
+    message, 'idl_routines.sav is an invalid savefile and is missing the expected variable for tooltips'
+  endif
+  nLines = n_elements(toolDatabase)
+  
+  ;track duplicate objects
+  duplicates = list()
+  
+  ;create a hash with our tooltips
+  tooltips = orderedhash(/FOLD_CASE)
+  
+  ;process and validate we can ingest
+  foreach line, toolDatabase, idx do begin
+    ;split our line
+    split = strsplit(line, ';', /EXTRACT)
+    
+    ;skip if not enough splits for routines
+    if (n_elements(split) ne 6) then continue
+    
+    ;extract our information
+    name = strmid(split[1], 1, strlen(split[1])-2)
+    tt = strmid(split[2], 1, strlen(split[2])-2)
+    link = strmid(split[4], 1, strlen(split[4])-2)
+    
+    ;create our hash lookup
+    lookup = {tooltip: tt, link: link}
+    
+    ;save to our hash
+    tooltips[name] = lookup
+    
+    ;check if we have an object name
+    pos = strpos(name, '::')
+    if (pos ne -1) then begin
+      ;get our method name
+      method = strmid(name, pos)
+      
+      ;check if we need to skip
+      if (duplicates.where(strlowcase(method)) ne !NULL) then continue
+      
+      ;check if we have a key already and remove as there are two methods
+      ;with the same name meaning we cant correctly identify it
+      if tooltips.hasKey(method) then begin
+        ;preserve duplicate tooltips if the tooltips are the same
+        if (strlowcase(tooltips[method].tooltip) eq strlowcase(tt)) then begin
+          ;if two tooltips, blast the method links!
+          if (strlowcase(tooltips[method].tooltip) ne strlowcase(link)) then begin
+            s = tooltips[method]
+            s.link = ''
+            tooltips[method] = s
+          endif
+        endif else begin
+          ;conflicting tooltips, so throw them out
+          duplicates.add, strlowcase(method)
+          tooltips.remove, method
+        endelse
+      endif else begin
+        tooltips[method] = {tooltip: tt, link: link}
+      endelse
+    endif
+    
+    ;check if we have a control statement
+    pos = strpos(name, '...')
+    if (pos ne -1) then begin
+      ;extract the start of the control statement
+      control = strmid(name, 0, pos + 3)
+      
+      ;make a new entry in our hash
+      tooltips[control] = {tooltip: tt, link: link}
+    endif
+  endforeach
+  
+  ;save them to disk with compression
+  save, tooltips, FILE = thisdir + path_sep() + 'idl_tooltips.sav'
+  
+  ;alert user
+  print, '  Created tooltip hash!'
 end
 
 
@@ -1885,7 +2008,7 @@ pro HTMLizer__define
     SEARCH_FOR:orderedhash(),$
 
     ;text file contents of our routines
-    ROUTINE_DB:ptr_new(),$
+    ROUTINE_DB: orderedhash(),$
     CUSTOM_DB: orderedhash(),$
       
     ;base link for content
