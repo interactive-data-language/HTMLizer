@@ -1095,7 +1095,7 @@ pro htmlizer::ProcessString, text, $
     chars = strmid(text, start, length)
 
     ;check for internal/external
-    if (total(strlowcase(chars) eq sysFunctions) gt 0) OR (strpos(strlowcase(chars), 'envi') ne -1) OR (strpos(strlowcase(chars), 'idlgr') ne -1) then begin
+    if (total(strlowcase(chars) eq sysFunctions) gt 0) OR (strpos(strlowcase(chars), 'envi') eq 0) OR (strpos(strlowcase(chars), 'idlgr') ne -1) then begin
       new = '<font class="idl_sys_func '
       search = sysFuncSearch
     endif else begin
